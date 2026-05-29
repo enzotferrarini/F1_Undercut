@@ -1,0 +1,349 @@
+---
+title: "The Undercut / Overcut Analysis"
+author: "Enzo Ferrarini"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Analytical Definition
+
+This analysis targets Formula 1 race strategy from 2019 to 2024. Because this window spans different regulation contexts, the results should be read as a broad modern-era strategy sample rather than a controlled same-car-era comparison. The schedule table below is the authoritative list of races included in the current render.
+
+In this project, an undercut event is defined as:
+
+1. A driver pits while following another driver closely on track.
+2. The rival ahead stops within a short lap window afterward.
+3. The outcome is evaluated after both cars have completed the pit cycle.
+
+Key design choices:
+
+- Use **gap before stop** from the lap before the pit in-lap.
+- Restrict to **green-flag windows** by default.
+- Compare against the **direct rival ahead**, not the whole field.
+- Score the outcome with **time gained** and **whether the rival was jumped**.
+- Exclude abnormal cases such as rapid repeat pit stops, retirements, very long service, and broken follow-up laps.
+- Exclude defensive leader stops by construction: retained events require the pit-first car to be following a rival ahead.
+
+# Environment Setup
+
+```{r libraries}
+Sys.setenv(RETICULATE_PYTHON = "/opt/anaconda3/bin/python3")
+
+library(reticulate)
+use_python("/opt/anaconda3/bin/python3", required = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(glue)
+library(janitor)
+library(knitr)
+library(purrr)
+library(scales)
+library(stringr)
+library(tibble)
+library(tidyr)
+
+source("R/undercut_functions.R")
+
+python_bin <- configure_fastf1_python()
+fastf1_version <- assert_fastf1_available()
+```
+
+Using Python at `r python_bin` with FastF1 version `r fastf1_version`.
+
+# Analysis Parameters
+
+The defaults below use a broader modern sample so the circuit-level results are not driven by one unusual season.
+
+```{r parameters}
+analysis_seasons <- 2019:2024
+max_races_per_season <- Inf
+cached_races_only <- TRUE
+
+max_pre_gap <- 5
+max_stop_lap_delta <- 4
+settle_laps <- 2
+green_flag_only <- TRUE
+extra_stop_buffer_laps <- 2
+max_stop_duration_sec <- 35
+damage_lap_buffer_sec <- 20
+
+cache_dir <- "cache/laps"
+```
+
+# Research Question
+
+> Which Formula 1 circuits most reward the undercut, measured by net time gained after a full pit cycle?
+
+# Build The Race Schedule
+
+```{r schedule}
+schedule_tbl <- load_schedule_table(analysis_seasons) |>
+  filter(date <= Sys.Date()) |>
+  arrange(season, round)
+
+if (cached_races_only) {
+  schedule_tbl <- schedule_tbl |>
+    mutate(
+      lap_cache_exists = file.exists(file.path(cache_dir, sprintf("season_%s_round_%02d_race_laps.rds", season, round))),
+      results_cache_exists = file.exists(file.path("cache/results", sprintf("season_%s_round_%02d_results.rds", season, round)))
+    ) |>
+    filter(lap_cache_exists, results_cache_exists) |>
+    select(-lap_cache_exists, -results_cache_exists)
+}
+
+if (is.finite(max_races_per_season)) {
+  schedule_tbl <- schedule_tbl |>
+    group_by(season) |>
+    slice_head(n = max_races_per_season) |>
+    ungroup()
+}
+
+schedule_tbl |>
+  select(season, round, race_name, circuit_name, date) |>
+  kable(caption = "Races Included In This Render")
+```
+
+# Run The Undercut Extraction
+
+```{r build-events, cache=TRUE, cache.extra=list(analysis_seasons, max_races_per_season, cached_races_only, max_pre_gap, max_stop_lap_delta, settle_laps, green_flag_only, extra_stop_buffer_laps, max_stop_duration_sec, damage_lap_buffer_sec, file.info('R/undercut_functions.R')$mtime)}
+analysis <- run_schedule_analysis(
+  schedule_tbl = schedule_tbl |>
+    select(season, round, race_name, circuit_name),
+  cache_dir = cache_dir,
+  max_pre_gap = max_pre_gap,
+  max_stop_lap_delta = max_stop_lap_delta,
+  settle_laps = settle_laps,
+  green_flag_only = green_flag_only,
+  extra_stop_buffer_laps = extra_stop_buffer_laps,
+  max_stop_duration_sec = max_stop_duration_sec,
+  damage_lap_buffer_sec = damage_lap_buffer_sec
+)
+
+events <- analysis$events
+track_summary <- summarize_track_undercuts(events)
+overcut_events <- derive_overcut_events(events)
+overcut_summary <- summarize_track_overcuts(overcut_events)
+race_context <- run_schedule_context(
+  schedule_tbl = schedule_tbl |>
+    select(season, round, race_name, circuit_name),
+  cache_dir = cache_dir,
+  damage_lap_buffer_sec = damage_lap_buffer_sec
+)
+track_context <- summarize_track_context(race_context)
+track_view <- combine_track_views(track_summary, overcut_summary, track_context)
+```
+
+# Quick Read
+
+```{r headline-metrics}
+headline_tbl <- tibble(
+  metric = c(
+    "Undercut events found",
+    "Overcut events derived",
+    "Circuits represented",
+    "Average undercut gain (sec)",
+    "Median undercut gain (sec)",
+    "Undercut success rate"
+  ),
+  value = c(
+    nrow(events),
+    nrow(overcut_events),
+    dplyr::n_distinct(events$circuit_name),
+    round(mean(events$undercut_gain_sec, na.rm = TRUE), 2),
+    round(median(events$undercut_gain_sec, na.rm = TRUE), 2),
+    percent(mean(events$undercut_succeeded, na.rm = TRUE), accuracy = 0.1)
+  )
+)
+
+headline_tbl |>
+  kable(caption = "Headline Metrics")
+```
+
+`r if (nrow(track_view) > 0) {
+  glue::glue(
+    'Across the seasons included in this render, the clean-event sample points to {track_view$circuit_name[[1]]} as the strongest average undercut venue, with a mean gain of {round(track_view$undercut_mean_gain_sec[[1]], 2)} seconds.'
+  )
+} else {
+  'No qualifying undercut events were found under the current filters.'
+}`
+
+# Track-Level Results
+
+```{r track-summary-table}
+track_view |>
+  mutate(
+    undercut_success_rate = percent(undercut_success_rate, accuracy = 0.1),
+    overcut_success_rate = percent(overcut_success_rate, accuracy = 0.1),
+    undercut_mean_gain_sec = round(undercut_mean_gain_sec, 2),
+    overcut_mean_gain_sec = round(overcut_mean_gain_sec, 2),
+    degradation_proxy_sec_per_lap = round(degradation_proxy_sec_per_lap, 3),
+    position_churn_rate = percent(position_churn_rate, accuracy = 0.1)
+  ) |>
+  select(
+    circuit_name,
+    undercut_attempts,
+    undercut_success_rate,
+    undercut_mean_gain_sec,
+    overcut_success_rate,
+    overcut_mean_gain_sec,
+    degradation_proxy_sec_per_lap,
+    position_churn_rate
+  ) |>
+  kable(caption = "Strategy View By Circuit")
+```
+
+```{r track-bar-chart, fig.width=10, fig.height=6}
+track_view |>
+  mutate(circuit_name = reorder(circuit_name, undercut_mean_gain_sec)) |>
+  ggplot(aes(x = undercut_mean_gain_sec, y = circuit_name, fill = undercut_success_rate)) +
+  geom_col() +
+  scale_fill_viridis_c(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Average Undercut Gain By Circuit",
+    x = "Average undercut gain (seconds)",
+    y = NULL,
+    fill = "Success rate"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+```{r track-distribution, fig.width=10, fig.height=6}
+events |>
+  mutate(circuit_name = reorder(circuit_name, undercut_gain_sec, FUN = median)) |>
+  ggplot(aes(x = circuit_name, y = undercut_gain_sec)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "firebrick") +
+  geom_boxplot(fill = "#9ecae1", alpha = 0.8, outlier.alpha = 0.7) +
+  coord_flip() +
+  labs(
+    title = "Distribution Of Undercut Outcomes By Circuit",
+    x = NULL,
+    y = "Undercut gain (seconds)"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+The dots in this chart are individual undercut events that fall outside the main distribution for that circuit. They are not separate categories; they show unusually large wins or losses within otherwise clean pit-cycle battles.
+
+# Overcut Comparison
+
+The overcut view is derived from the same clean pit-cycle events, read from the perspective of the driver who stayed out longer. It is useful for interpretation, but it is not an independent second sample.
+
+```{r overcut-summary-table}
+overcut_summary |>
+  mutate(
+    success_rate = percent(success_rate, accuracy = 0.1),
+    mean_gain_sec = round(mean_gain_sec, 2),
+    median_gain_sec = round(median_gain_sec, 2)
+  ) |>
+  kable(caption = "Overcut View By Circuit")
+```
+
+# Track Context Proxies
+
+These are not direct physical measurements. They are race-derived proxies used to help explain *why* some tracks look more undercut-friendly than others. I do **not** include a pit-lane loss proxy in the final table because the official pit-stop feed reflects stop duration, not full pit-lane time loss, and that is too easy to misread at circuits like Monaco.
+
+```{r track-context-table}
+track_context |>
+  mutate(
+    degradation_proxy_sec_per_lap = round(degradation_proxy_sec_per_lap, 3),
+    position_churn_rate = percent(position_churn_rate, accuracy = 0.1),
+    broken_lap_rate = percent(broken_lap_rate, accuracy = 0.1)
+  ) |>
+  select(
+    circuit_name,
+    races,
+    degradation_proxy_sec_per_lap,
+    position_churn_rate,
+    broken_lap_rate
+  ) |>
+  kable(caption = "Track Context Proxies")
+```
+
+```{r proxy-scatter, fig.width=10, fig.height=6}
+track_view |>
+  ggplot(aes(
+    x = degradation_proxy_sec_per_lap,
+    y = undercut_mean_gain_sec,
+    size = undercut_attempts,
+    color = position_churn_rate
+  )) +
+  geom_point(alpha = 0.85) +
+  geom_text(aes(label = circuit_name), size = 3, nudge_y = 0.2, check_overlap = TRUE) +
+  scale_color_viridis_c(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Undercut Strength Against Track Context Proxies",
+    x = "Degradation proxy (sec per lap of tyre life)",
+    y = "Mean undercut gain (seconds)",
+    color = "Position churn",
+    size = "Undercut attempts"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+# Best And Worst Individual Events
+
+```{r event-tables}
+best_events <- events |>
+  arrange(desc(undercut_gain_sec)) |>
+  transmute(
+    season,
+    round,
+    race_name,
+    pit_first_driver,
+    rival_driver,
+    stop_lap,
+    rival_stop_lap,
+    gap_before_sec = round(gap_before_sec, 2),
+    gap_after_sec = round(gap_after_sec, 2),
+    undercut_gain_sec = round(undercut_gain_sec, 2),
+    jumped_rival
+  ) |>
+  slice_head(n = 10)
+
+worst_events <- events |>
+  arrange(undercut_gain_sec) |>
+  transmute(
+    season,
+    round,
+    race_name,
+    pit_first_driver,
+    rival_driver,
+    stop_lap,
+    rival_stop_lap,
+    gap_before_sec = round(gap_before_sec, 2),
+    gap_after_sec = round(gap_after_sec, 2),
+    undercut_gain_sec = round(undercut_gain_sec, 2),
+    jumped_rival
+  ) |>
+  slice_head(n = 10)
+
+best_events |>
+  kable(caption = "Best Individual Undercut Events")
+
+worst_events |>
+  kable(caption = "Worst Individual Undercut Events")
+```
+
+# Interpretation
+
+The results suggest that the undercut is not a universal advantage. Its value is concentrated at a smaller group of circuits where fresh-tyre performance can be converted quickly into track position or a meaningful gap reduction. In this render, **Suzuka Circuit** stands out with the strongest average undercut gain at roughly **6.06 seconds**, followed closely by **Circuit Park Zandvoort** at roughly **5.91 seconds**. Those values do not mean every stop-first strategy works at those tracks, but they do show that when the right battle conditions appear, the pit-first car can create a large advantage.
+
+The weaker end of the table is just as important. **Mugello**, **Mexico City**, **Sochi**, and **Singapore** show negative average undercut outcomes in this sample. That points to situations where stopping first did not reliably create value, either because the rival could extend effectively, the pit-first car rejoined into poor traffic, or the fresh-tyre advantage was not large enough to overcome the cost of stopping. In those cases, the delayed stopper's response looks closer to a successful overcut than a failed defense.
+
+The overcut comparison reinforces the same idea: pit timing only matters when the surrounding conditions let the strategy convert. If the pit-first car cannot use the fresh tyre immediately, then stopping early can simply expose the driver to traffic or leave the rival with cleaner air and more strategic flexibility. This is why the strongest results should be read as circuit-and-context combinations, not as fixed laws about the tracks.
+
+The context proxies add useful support but should stay in the background. Tyre degradation and position churn help explain why certain tracks appear more undercut-friendly, but they are not direct physical measurements. The practical takeaway is that the undercut works best when tyre delta arrives quickly and overtaking is costly enough that one strong pit cycle can lock in position. Where that combination is weaker, the overcut remains a serious alternative.

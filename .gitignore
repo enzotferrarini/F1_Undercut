@@ -1,0 +1,12 @@
+.DS_Store
+.RData
+.Rhistory
+.Rproj.user/
+
+# Local data and render caches
+cache/
+*_cache/
+
+# R Markdown intermediate figure outputs.
+# The HTML report is self-contained, so these are not needed on GitHub.
+*_files/
