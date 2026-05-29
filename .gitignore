@@ -7,6 +7,6 @@
 cache/
 *_cache/
 
-# R Markdown intermediate figure outputs.
-# The HTML report is self-contained, so these are not needed on GitHub.
+# Generated report outputs
+*.html
 *_files/

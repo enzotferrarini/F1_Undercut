@@ -31,20 +31,19 @@ The pipeline:
 - Summarizes undercut and overcut outcomes by circuit.
 - Adds supporting track-context proxies for tyre degradation and position churn.
 
-## Outputs
+## Example Results
 
-The rendered report is:
+### Average undercut gain by circuit
 
-- `undercut_overcut_analysis.html`
+![Average undercut gain by circuit](images/track_bar_chart.png)
 
-Key sections in the report:
+### Distribution of undercut outcomes
 
-- Strategy event definition
-- Track-level undercut results
-- Overcut comparison
-- Track-context proxies
-- Best and worst individual strategy events
-- Results interpretation
+![Distribution of undercut outcomes by circuit](images/track_distribution.png)
+
+### Undercut strength and track context
+
+![Undercut strength against track context proxies](images/proxy_scatter.png)
 
 ## Scope
 
