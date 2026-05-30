@@ -719,6 +719,23 @@ summarize_track_overcuts <- function(overcut_events) {
     dplyr::arrange(dplyr::desc(.data$mean_gain_sec))
 }
 
+estimate_degradation_slope <- function(lap_time, tyre_life) {
+  model_data <- tibble::tibble(
+    lap_time = as.numeric(lap_time),
+    tyre_life = as.numeric(tyre_life)
+  ) %>%
+    dplyr::filter(is.finite(.data$lap_time), is.finite(.data$tyre_life))
+
+  if (nrow(model_data) < 5L || dplyr::n_distinct(model_data$tyre_life) < 2L) {
+    return(NA_real_)
+  }
+
+  tryCatch(
+    unname(stats::coef(stats::lm(lap_time ~ tyre_life, data = model_data))[[2]]),
+    error = function(e) NA_real_
+  )
+}
+
 compute_race_context <- function(laps,
                                  season,
                                  round,
@@ -741,7 +758,7 @@ compute_race_context <- function(laps,
     dplyr::group_by(.data$driver, .data$stint) %>%
     dplyr::filter(dplyr::n() >= 5, dplyr::n_distinct(.data$tyre_life) >= 4) %>%
     dplyr::summarise(
-      degradation_slope = coef(stats::lm(lap_time ~ tyre_life, data = dplyr::cur_data()))[[2]],
+      degradation_slope = estimate_degradation_slope(.data$lap_time, .data$tyre_life),
       .groups = "drop"
     )
 

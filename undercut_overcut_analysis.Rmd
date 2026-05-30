@@ -119,7 +119,7 @@ schedule_tbl |>
 
 # Run The Undercut Extraction
 
-```{r build-events, cache=TRUE, cache.extra=list(analysis_seasons, max_races_per_season, cached_races_only, max_pre_gap, max_stop_lap_delta, settle_laps, green_flag_only, extra_stop_buffer_laps, max_stop_duration_sec, damage_lap_buffer_sec, file.info('R/undercut_functions.R')$mtime)}
+```{r build-events, cache=TRUE, cache.extra=list(analysis_seasons, max_races_per_season, cached_races_only, paste(schedule_tbl$season, schedule_tbl$round, collapse = '|'), max_pre_gap, max_stop_lap_delta, settle_laps, green_flag_only, extra_stop_buffer_laps, max_stop_duration_sec, damage_lap_buffer_sec, file.info('R/undercut_functions.R')$mtime)}
 analysis <- run_schedule_analysis(
   schedule_tbl = schedule_tbl |>
     select(season, round, race_name, circuit_name),

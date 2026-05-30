@@ -49,7 +49,7 @@ The pipeline:
 
 The notebook is configured for the 2019-2024 seasons. This gives a broader modern-era sample, but it also spans different regulation contexts. The results should be read as broad strategy evidence, not as a perfectly controlled same-car-era comparison.
 
-The current rendered report uses the races available in the local cache. At the time of this render, that includes 2019, 2020, 2022, 2023, and 2024. The 2021 season can be added by setting `cached_races_only <- FALSE` in the R Markdown file and rerunning after the FastF1 API limit resets.
+The current rendered report uses the races available in the local cache. At the time of this render, that includes the full 2019-2024 window.
 
 ## Key Takeaway
 
