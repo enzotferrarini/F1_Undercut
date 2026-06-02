@@ -68,13 +68,6 @@ Open `undercut_overcut_analysis.Rmd` in RStudio and knit the document.
 
 The notebook expects:
 
-- R with `rmarkdown`, `dplyr`, `ggplot2`, `f1dataR`, `reticulate`, and related tidyverse packages.
-- A FastF1-compatible Python environment available through `reticulate`.
-
-The analysis code is written in R. FastF1 is only the timing-data backend that `f1dataR` accesses through `reticulate`. In this workspace, the notebook is configured to use:
-
-```r
-Sys.setenv(RETICULATE_PYTHON = "/opt/anaconda3/bin/python3")
-```
+- R with `rmarkdown`, `dplyr`, `ggplot2`, `f1dataR`, and related tidyverse packages.
 
 Race data is cached under `cache/` so reruns are faster after the first full render.
