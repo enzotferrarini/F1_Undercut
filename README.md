@@ -1,6 +1,6 @@
 # Formula 1 Undercut / Overcut Analysis
 
-This project analyzes Formula 1 pit strategy using lap-by-lap timing data from `f1dataR` and FastF1. The main question is:
+This R project analyzes Formula 1 pit strategy using lap-by-lap timing data from `f1dataR`. The main question is:
 
 > Which circuits most reward the undercut, measured by net time gained after a full pit cycle?
 
@@ -66,13 +66,12 @@ The undercut is not equally valuable everywhere. The strongest tracks in this sa
 
 Open `undercut_overcut_analysis.Rmd` in RStudio and knit the document.
 
-The report expects:
+The notebook expects:
 
 - R with `rmarkdown`, `dplyr`, `ggplot2`, `f1dataR`, `reticulate`, and related tidyverse packages.
-- Python with FastF1 installed.
-- `RETICULATE_PYTHON` pointing to the Python environment that has FastF1.
+- A FastF1-compatible Python environment available through `reticulate`.
 
-In this workspace, the notebook is configured to use:
+The analysis code is written in R. FastF1 is only the timing-data backend that `f1dataR` accesses through `reticulate`. In this workspace, the notebook is configured to use:
 
 ```r
 Sys.setenv(RETICULATE_PYTHON = "/opt/anaconda3/bin/python3")
